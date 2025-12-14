@@ -158,8 +158,10 @@ components:
               type: string
               enum: [authorization, authorizationEip3009]
               description: "Type of authorization (EVM Exact Scheme)"
+              example: "authorizationEip3009"
             signature:
               type: string
+              example: "0x1234..."
             authorization:
               type: object
           additionalProperties: true
@@ -178,13 +180,16 @@ components:
           example: 1
         scheme:
           type: string
+          example: "exact"
         network:
           type: string
+          example: "eip155:84532"
         payload:
           type: object
           properties:
             signature:
               type: string
+              example: "0x5678..."
             authorization:
               type: object
           additionalProperties: true
@@ -193,16 +198,22 @@ components:
       properties:
         scheme:
           type: string
+          example: "exact"
         network:
           type: string
+          example: "eip155:84532"
         asset:
           type: string
+          example: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         amount:
           type: string
+          example: "100000"
         payTo:
           type: string
+          example: "0xFacilitatorAddress..."
         maxTimeoutSeconds:
           type: integer
+          example: 3600
         extra:
           type: object
     PaymentRequirementsV1:
@@ -210,16 +221,22 @@ components:
       properties:
         scheme:
           type: string
+          example: "exact"
         network:
           type: string
+          example: "base-sepolia"
         asset:
           type: string
+          example: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
         maxAmountRequired:
           type: string
+          example: "100000"
         payTo:
           type: string
+          example: "0xFacilitatorAddress..."
         maxTimeoutSeconds:
           type: integer
+          example: 600
         extra:
           type: object
     ResourceInfo:
@@ -227,7 +244,10 @@ components:
       properties:
         url:
           type: string
+          example: "https://api.example.com/premium-data"
         description:
           type: string
+          example: "Premium Market Data"
         mimeType:
           type: string
+          example: "application/json"

@@ -57,6 +57,7 @@ components:
         error:
           type: string
           description: Error message ex. "Payment required"
+          example: "Payment required"
     PaymentRequired:
       type: object
       properties:
@@ -65,6 +66,7 @@ components:
           example: 2
         error:
           type: string
+          example: "Payment Required"
         resource:
           $ref: '#/components/schemas/ResourceInfo'
         accepts:
@@ -79,16 +81,22 @@ components:
       properties:
         scheme:
           type: string
+          example: "exact"
         network:
           type: string
+          example: "eip155:84532"
         asset:
           type: string
+          example: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         amount:
           type: string
+          example: "100000"
         payTo:
           type: string
+          example: "0xFacilitatorAddress..."
         maxTimeoutSeconds:
           type: integer
+          example: 3600
         extra:
           type: object
     ResourceInfo:
@@ -96,10 +104,13 @@ components:
       properties:
         url:
           type: string
+          example: "https://api.example.com/premium-data"
         description:
           type: string
+          example: "Premium Market Data"
         mimeType:
           type: string
+          example: "application/json"
     PaymentPayload:
       type: object
       properties:
@@ -115,11 +126,16 @@ components:
       properties:
         success:
           type: boolean
+          example: true
         errorReason:
           type: string
+          example: ""
         payer:
           type: string
+          example: "0xPayerAddress..."
         transaction:
           type: string
+          example: "0xTransactionHash..."
         network:
           type: string
+          example: "eip155:84532"

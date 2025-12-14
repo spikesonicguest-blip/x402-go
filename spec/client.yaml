@@ -30,20 +30,26 @@ components:
         scheme:
           type: string
           description: Payment scheme (e.g., "exact", "upto")
+          example: "exact"
         network:
           type: string
           description: CAIP-2 network identifier (e.g., "eip155:1")
+          example: "eip155:84532"
         asset:
           type: string
           description: Asset identifier (e.g., contract address or "native")
+          example: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
         amount:
           type: string
           description: Payment amount (decimal string)
+          example: "100000"
         payTo:
           type: string
           description: Recipient address
+          example: "0xFacilitatorAddress..."
         maxTimeoutSeconds:
           type: integer
+          example: 3600
         extra:
           type: object
           additionalProperties: true
@@ -53,19 +59,24 @@ components:
       properties:
         url:
           type: string
+          example: "https://api.example.com/premium-data"
         description:
           type: string
+          example: "Premium Market Data"
         mimeType:
           type: string
+          example: "application/json"
     PaymentHeader:
       type: string
       description: Base64 encoded PaymentPayload (PAYMENT-SIGNATURE)
+      example: "ey...}"
     UnpaidResponse:
       type: object
       description: Body of 402 Payment Required response
       properties:
         error:
           type: string
+          example: "Payment required for this resource"
         resource:
           $ref: '#/components/schemas/ResourceInfo'
         accepts:
@@ -84,20 +95,26 @@ components:
           type: array
           items:
             type: string
+            example: "bazaar"
         signers:
           type: object
           additionalProperties:
             type: array
             items:
               type: string
+              example: "0xSignerAddress..."
+          description: Map of CAIP network family to signer addresses
     SupportedKind:
       type: object
       properties:
         x402Version:
           type: integer
+          example: 2
         scheme:
           type: string
+          example: "exact"
         network:
           type: string
+          example: "eip155:84532"
         extra:
           type: object
