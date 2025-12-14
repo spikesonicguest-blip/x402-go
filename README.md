@@ -12,6 +12,20 @@ x402 is a protocol that enables HTTP resources to require cryptocurrency payment
 go get github.com/coinbase/x402/go
 ```
 
+## Upstream Synchronization
+
+This repository contains a subset of the [x402](https://github.com/coinbase/x402) repository. To pull the latest changes from upstream while preserving your local modifications:
+
+```bash
+./sync_upstream.sh
+```
+
+This script will:
+1. Configure the `upstream` remote if needed
+2. Fetch the latest changes
+3. Merge the `go` directory from upstream into your current branch using `git subtree` logic
+4. Handle merge conflicts via standard git mechanisms
+
 ## What This Package Exports
 
 This package provides modules to support the x402 protocol in Go applications.
