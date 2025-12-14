@@ -1,0 +1,138 @@
+openapi: 3.0.3
+info:
+  title: x402 Discovery API
+  description: API for the x402 Discovery service (Bazaar) for finding monetized resources.
+  version: 1.0.0
+paths:
+  /discovery/resources:
+    get:
+      summary: List discoverable x402 resources
+      description: Retrieve a list of monetized resources from the Bazaar.
+      operationId: getDiscoveredResources
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            example: "http"
+          description: Filter by resource type
+          required: false
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Maximum number of results to return
+          required: false
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Number of results to skip
+          required: false
+      responses:
+        '200':
+          description: List of discovered resources
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveryResponse'
+        '400':
+          description: Invalid parameters
+        '500':
+          description: Internal server error
+components:
+  schemas:
+    DiscoveryResponse:
+      type: object
+      required:
+        - x402Version
+        - items
+        - pagination
+      properties:
+        x402Version:
+          type: integer
+          example: 2
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiscoveredResource'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    DiscoveredResource:
+      type: object
+      required:
+        - resource
+        - type
+        - x402Version
+        - accepts
+        - lastUpdated
+      properties:
+        resource:
+          type: string
+          description: The resource URL or identifier
+          example: "https://api.example.com/premium-data"
+        type:
+          type: string
+          description: Resource type
+          example: "http"
+        x402Version:
+          type: integer
+          description: Protocol version supported
+          example: 1
+        accepts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequirements'
+        lastUpdated:
+          type: integer
+          description: Unix timestamp of last update
+          example: 1703123456
+        metadata:
+          type: object
+          description: Additional metadata
+          properties:
+            category:
+              type: string
+            provider:
+              type: string
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+          example: 10
+        offset:
+          type: integer
+          example: 0
+        total:
+          type: integer
+          example: 1
+    PaymentRequirements:
+      type: object
+      description: Copy of PaymentRequirements structure (refer to client/server api for official def)
+      properties:
+        scheme:
+          type: string
+          example: "exact"
+        network:
+          type: string
+          example: "eip155:84532"
+        asset:
+          type: string
+          example: "0x..."
+        amount:
+          type: string
+          example: "10000"
+        payTo:
+          type: string
+          example: "0x..."
+        maxTimeoutSeconds:
+          type: integer
+          example: 60
+        extra:
+          type: object
