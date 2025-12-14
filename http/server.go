@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	x402 "github.com/coinbase/x402/go"
-	"github.com/coinbase/x402/go/types"
+	x402 "x402-go"
+	"x402-go/types"
 )
 
 // ============================================================================

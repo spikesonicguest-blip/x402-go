@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	x402 "github.com/coinbase/x402/go"
-	x402http "github.com/coinbase/x402/go/http"
-	"github.com/coinbase/x402/go/test/mocks/cash"
-	"github.com/coinbase/x402/go/types"
+	x402 "x402-go"
+	x402http "x402-go/http"
+	"x402-go/test/mocks/cash"
+	"x402-go/types"
 )
 
 // mockHTTPAdapter implements the HTTPAdapter interface for testing

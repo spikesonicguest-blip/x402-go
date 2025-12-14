@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	x402 "github.com/coinbase/x402/go"
-	"github.com/coinbase/x402/go/extensions/types"
-	v1 "github.com/coinbase/x402/go/extensions/v1"
-	x402types "github.com/coinbase/x402/go/types"
+	x402 "x402-go"
+	"x402-go/extensions/types"
+	v1 "x402-go/extensions/v1"
+	x402types "x402-go/types"
 	"github.com/xeipuuv/gojsonschema"
 )
 

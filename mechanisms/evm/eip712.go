@@ -160,3 +160,78 @@ func HashEIP3009Authorization(
 
 	return HashTypedData(domain, types, "TransferWithAuthorization", message)
 }
+
+// HashERC20Authorization hashes a tokenTransferWithAuthorization message for ERC-20 tokens
+//
+// This function wraps HashTypedData with the specific types and structure used by
+// the facilitator's tokenTransferWithAuthorization.
+//
+// Args:
+//
+//	authorization: The ERC-20 authorization data
+//	chainID: The chain ID for the EIP-712 domain
+//	verifyingContract: The facilitator contract address
+//
+// Returns:
+//
+//	32-byte hash suitable for signing or verification
+//	error if hashing fails
+func HashERC20Authorization(
+	authorization ExactERC20Authorization,
+	chainID *big.Int,
+	verifyingContract string,
+) ([]byte, error) {
+	// Create EIP-712 domain
+	// Note: The facilitator uses name "Facilitator" and version "1"
+	domain := TypedDataDomain{
+		Name:              "Facilitator",
+		Version:           "1",
+		ChainID:           chainID,
+		VerifyingContract: verifyingContract,
+	}
+
+	// Define EIP-712 types
+	types := map[string][]TypedDataField{
+		"EIP712Domain": {
+			{Name: "name", Type: "string"},
+			{Name: "version", Type: "string"},
+			{Name: "chainId", Type: "uint256"},
+			{Name: "verifyingContract", Type: "address"},
+		},
+		"tokenTransferWithAuthorization": {
+			{Name: "token", Type: "address"},
+			{Name: "from", Type: "address"},
+			{Name: "to", Type: "address"},
+			{Name: "value", Type: "uint256"},
+			{Name: "validAfter", Type: "uint256"},
+			{Name: "validBefore", Type: "uint256"},
+			{Name: "nonce", Type: "bytes32"},
+			{Name: "needApprove", Type: "bool"},
+		},
+	}
+
+	// Parse values for message
+	value, _ := new(big.Int).SetString(authorization.Value, 10)
+	validAfter, _ := new(big.Int).SetString(authorization.ValidAfter, 10)
+	validBefore, _ := new(big.Int).SetString(authorization.ValidBefore, 10)
+	nonceBytes, _ := HexToBytes(authorization.Nonce)
+
+	// Ensure addresses are checksummed
+	token := common.HexToAddress(authorization.Token).Hex()
+	from := common.HexToAddress(authorization.From).Hex()
+	to := common.HexToAddress(authorization.To).Hex()
+
+	// Create message
+	message := map[string]interface{}{
+		"token":       token,
+		"from":        from,
+		"to":          to,
+		"value":       value,
+		"validAfter":  validAfter,
+		"validBefore": validBefore,
+		"nonce":       nonceBytes,
+		"needApprove": authorization.NeedApprove,
+	}
+
+	return HashTypedData(domain, types, "tokenTransferWithAuthorization", message)
+}

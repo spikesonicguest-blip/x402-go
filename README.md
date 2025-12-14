@@ -9,12 +9,12 @@ x402 is a protocol that enables HTTP resources to require cryptocurrency payment
 ## Installation
 
 ```bash
-go get github.com/coinbase/x402/go
+go get x402-go
 ```
 
 ## Upstream Synchronization
 
-This repository contains a subset of the [x402](https://github.com/coinbase/x402) repository. To pull the latest changes from upstream while preserving your local modifications:
+This repository contains a subset of the [x402](https://github.com/spikesonicguest-blip/x402-go) repository. To pull the latest changes from upstream while preserving your local modifications:
 
 ```bash
 ./sync_upstream.sh
@@ -200,7 +200,7 @@ For payment processing services that verify and settle payments.
 ## Package Structure
 
 ```
-github.com/coinbase/x402/go
+x402-go
 │
 ├── Core (framework-agnostic)
 │   ├── client.go              - x402.X402Client

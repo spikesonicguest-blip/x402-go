@@ -1,12 +1,16 @@
 package evm
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // GetEvmChainId returns the chain ID for a given network
@@ -202,7 +206,101 @@ func HexToBytes(hexStr string) ([]byte, error) {
 	return hex.DecodeString(cleaned)
 }
 
-// BytesToHex converts bytes to a hex string with 0x prefix
-func BytesToHex(data []byte) string {
-	return "0x" + hex.EncodeToString(data)
+// VerifyEIP3009Support checks if a token contract supports EIP-3009 transferWithAuthorization.
+// It simulates a call with a random valid-looking signature.
+// If the call reverts with "invalid signature" (or similar), it means the function exists.
+// If it reverts because function selector not found (fallback), it means not supported.
+// EIP3009SupportCache caches the support status (supported, unsupported) for tokens on chains
+// Key format: "chainID:tokenAddress"
+var EIP3009SupportCache sync.Map
+
+// VerifyEIP3009Support checks if a token contract supports EIP-3009 transferWithAuthorization.
+// It simulates a call with a random valid-looking signature.
+// If the call reverts with "invalid signature" (or similar), it means the function exists.
+// If it reverts because function selector not found (fallback), it means not supported.
+func VerifyEIP3009Support(ctx context.Context, reader ContractReader, chainID *big.Int, fromAddress string, tokenAddress string) (bool, error) {
+	// Check cache first
+	cacheKey := fmt.Sprintf("%s:%s", chainID.String(), strings.ToLower(tokenAddress))
+	if val, ok := EIP3009SupportCache.Load(cacheKey); ok {
+		return val.(bool), nil
+	}
+
+	// EIP-3009 transferWithAuthorization selector: e3ee160e
+	// transferWithAuthorization(address,address,uint256,uint256,uint256,bytes32,uint8,bytes32,bytes32)
+	// We use the VRS version as it's the standard for EOAs.
+
+	// Construct a dummy call
+	from := common.HexToAddress(fromAddress)
+	to := common.HexToAddress(fromAddress) // Self for safety
+	value := big.NewInt(0)
+	validAfter := big.NewInt(0)
+	validBefore := big.NewInt(0)
+	var nonce [32]byte
+
+	// Dummy signature parts
+	var v uint8 = 27
+	var r [32]byte
+	var s [32]byte
+
+	// Create minimal ABI for just this function
+	minimalABI := []byte(`[
+		{
+			"inputs": [
+				{"name": "from", "type": "address"},
+				{"name": "to", "type": "address"},
+				{"name": "value", "type": "uint256"},
+				{"name": "validAfter", "type": "uint256"},
+				{"name": "validBefore", "type": "uint256"},
+				{"name": "nonce", "type": "bytes32"},
+				{"name": "v", "type": "uint8"},
+				{"name": "r", "type": "bytes32"},
+				{"name": "s", "type": "bytes32"}
+			],
+			"name": "transferWithAuthorization",
+			"outputs": [],
+			"stateMutability": "nonpayable",
+			"type": "function"
+		}
+	]`)
+
+	// Perform read (simulation)
+	// We expect this to fail, but HOW it fails tells us if supported.
+	_, err := reader.ReadContract(
+		ctx,
+		tokenAddress,
+		minimalABI,
+		"transferWithAuthorization",
+		from,
+		to,
+		value,
+		validAfter,
+		validBefore,
+		nonce,
+		v,
+		r,
+		s,
+	)
+
+	var supported bool
+	if err == nil {
+		// Verify surprising success (maybe it accepts anything?)
+		supported = true
+	} else {
+		// Check error message
+		errStr := err.Error()
+
+		// If revert contains "signature" or specific EIP-3009 errors, it's supported
+		if strings.Contains(strings.ToLower(errStr), "signature") ||
+			strings.Contains(strings.ToLower(errStr), "authorization") ||
+			strings.Contains(strings.ToLower(errStr), "nonce") {
+			supported = true
+		} else {
+			supported = false
+		}
+	}
+
+	// Update cache
+	EIP3009SupportCache.Store(cacheKey, supported)
+
+	return supported, nil
 }

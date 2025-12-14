@@ -16,7 +16,7 @@ An **x402 client** is an application that makes HTTP requests to payment-protect
 ### Installation
 
 ```bash
-go get github.com/coinbase/x402/go
+go get x402-go
 ```
 
 ### Basic HTTP Client
@@ -27,10 +27,10 @@ package main
 import (
     "net/http"
     
-    x402 "github.com/coinbase/x402/go"
-    x402http "github.com/coinbase/x402/go/http"
-    evm "github.com/coinbase/x402/go/mechanisms/evm/exact/client"
-    evmsigners "github.com/coinbase/x402/go/signers/evm"
+    x402 "x402-go"
+    x402http "x402-go/http"
+    evm "x402-go/mechanisms/evm/exact/client"
+    evmsigners "x402-go/signers/evm"
 )
 
 func main() {
@@ -62,7 +62,7 @@ func main() {
 #### EVM Signer
 
 ```go
-import evmsigners "github.com/coinbase/x402/go/signers/evm"
+import evmsigners "x402-go/signers/evm"
 
 signer, err := evmsigners.NewClientSignerFromPrivateKey("0x1234...")
 if err != nil {
@@ -75,7 +75,7 @@ fmt.Println("Address:", signer.Address())
 #### SVM Signer
 
 ```go
-import svmsigners "github.com/coinbase/x402/go/signers/svm"
+import svmsigners "x402-go/signers/svm"
 
 signer, err := svmsigners.NewClientSignerFromPrivateKey("5J7W...")
 if err != nil {
@@ -138,7 +138,24 @@ client.
     Register("eip155:1", evm.NewExactEvmScheme(mainnetSigner))      // Override for mainnet
 ```
 
-### 4. HTTP Integration
+### 4. Standard ERC-20 Support
+
+The client automatically handles payments for standard ERC-20 tokens that do not support EIP-3009 (gasless approvals).
+
+**The Workflow:**
+1. **Detection:** Client detects if the token supports EIP-3009.
+2. **Allowance Check:** Checks if the user has approved the Facilitator contract.
+3. **Approve Transaction:** If allowance is insufficient, automatically sends an `approve` transaction.
+   > **Note:** This requires the signer to be connected to an RPC provider and have a funded account to pay for gas.
+4. **Wait:** Waits for the transaction to be mined.
+5. **Sign:** Signs the payment authorization.
+6. **Pay:** Sends the request with the payment payload.
+
+**Prerequisites:**
+- Signer must be connected to an RPC provider using `signer.Connect(url)`.
+- Account must have native tokens (ETH, MATIC, etc.) to pay for the approval transaction gas.
+
+### 5. HTTP Integration
 
 The HTTP layer adds automatic payment handling to standard HTTP clients.
 
@@ -514,8 +531,8 @@ Payment payloads are created fresh for each 402 response. They are not cached be
 ```go
 import (
     "testing"
-    x402 "github.com/coinbase/x402/go"
-    evm "github.com/coinbase/x402/go/mechanisms/evm/exact/client"
+    x402 "x402-go"
+    evm "x402-go/mechanisms/evm/exact/client"
 )
 
 func TestClientRegistration(t *testing.T) {

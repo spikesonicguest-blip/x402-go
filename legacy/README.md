@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-go get github.com/coinbase/x402/go
+go get x402-go
 ```
 
 ## Usage
@@ -16,7 +16,7 @@ package main
 import (
 	"math/big"
 
-	x402gin "github.com/coinbase/x402/go/pkg/gin"
+	x402gin "x402-go/pkg/gin"
 	"github.com/gin-gonic/gin"
 )
 

@@ -2,13 +2,14 @@ package client
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math/big"
 	"time"
 
-	"github.com/coinbase/x402/go/mechanisms/evm"
-	"github.com/coinbase/x402/go/types"
+	"x402-go/mechanisms/evm"
+	"x402-go/types"
 )
 
 // ExactEvmSchemeV1 implements the SchemeNetworkClientV1 interface for EVM exact payments (V1)
@@ -107,7 +108,7 @@ func (c *ExactEvmSchemeV1) CreatePaymentPayload(
 
 	// Create EVM payload
 	evmPayload := &evm.ExactEIP3009Payload{
-		Signature:     evm.BytesToHex(signature),
+		Signature:     "0x" + hex.EncodeToString(signature),
 		Authorization: authorization,
 	}
 

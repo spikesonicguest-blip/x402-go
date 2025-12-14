@@ -18,18 +18,32 @@ The exact scheme is organized by role:
 
 **Import Path:**
 ```
-github.com/coinbase/x402/go/mechanisms/evm/exact/client
+x402-go/mechanisms/evm/exact/client
 ```
 
 **Exports:**
 - `NewExactEvmScheme(signer)` - Creates client-side EVM exact payment mechanism
 - Used for creating payment payloads that clients sign
 
+### Signing Functions
+
+The exact scheme supports two methods for signing payments, handled automatically based on token capabilities:
+
+1.  **`signAuthorizationEIP3009` (Gasless)**
+    - Used for tokens supporting EIP-3009 (like USDC)
+    - Creates a signature for `TransferWithAuthorization`
+    - Does not require on-chain approval
+
+2.  **`signAuthorizationERC20` (Standard ERC-20)**
+    - Used for standard ERC-20 tokens
+    - Requires an on-chain `approve` transaction first
+    - Creates a signature for `tokenTransferWithAuthorization` (Facilitator-specific)
+
 #### For Servers
 
 **Import Path:**
 ```
-github.com/coinbase/x402/go/mechanisms/evm/exact/server
+x402-go/mechanisms/evm/exact/server
 ```
 
 **Exports:**
@@ -41,7 +55,7 @@ github.com/coinbase/x402/go/mechanisms/evm/exact/server
 
 **Import Path:**
 ```
-github.com/coinbase/x402/go/mechanisms/evm/exact/facilitator
+x402-go/mechanisms/evm/exact/facilitator
 ```
 
 **Exports:**

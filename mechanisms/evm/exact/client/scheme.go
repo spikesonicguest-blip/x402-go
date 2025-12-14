@@ -2,12 +2,15 @@ package client
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"time"
 
-	"github.com/coinbase/x402/go/mechanisms/evm"
-	"github.com/coinbase/x402/go/types"
+	"x402-go/mechanisms/evm"
+	"x402-go/types"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // ExactEvmScheme implements the SchemeNetworkClient interface for EVM exact payments (V2)
@@ -78,36 +81,140 @@ func (c *ExactEvmScheme) CreatePaymentPayload(
 	}
 
 	// Create authorization
-	authorization := evm.ExactEIP3009Authorization{
-		From:        c.signer.Address(),
-		To:          requirements.PayTo,
-		Value:       value.String(),
-		ValidAfter:  validAfter.String(),
-		ValidBefore: validBefore.String(),
-		Nonce:       nonce,
+	// Create authorization
+	// Determine flow: EIP-3009 (gasless) or ERC-20 (approve + facilitator method)
+	// We want to prefer EIP-3009 if supported.
+
+	// Check standard support flag first (static config)
+	supportsEIP3009 := assetInfo.SupportsEIP3009
+
+	// If static config says false (or we want to double check), try dynamic check
+	if !supportsEIP3009 {
+		// Use dynamic check
+		// Note: This requires network access. If the signer doesn't support it (e.g. offline keys),
+		// this will fail. We should handle that gracefully or assume false.
+		// For now, we log/ignore error and assume false if check failed.
+		supported, err := evm.VerifyEIP3009Support(ctx, c.signer, config.ChainID, c.signer.Address(), assetInfo.Address)
+		if err == nil && supported {
+			supportsEIP3009 = true
+		}
+		// If verification failed (e.g. no RPC), we default to standard ERC-20 flow which works universally
+		// (though costs gas for verify).
 	}
 
-	// Sign the authorization
-	signature, err := c.signAuthorization(ctx, authorization, config.ChainID, assetInfo.Address, tokenName, tokenVersion)
-	if err != nil {
-		return types.PaymentPayload{}, fmt.Errorf("failed to sign authorization: %w", err)
-	}
+	if supportsEIP3009 {
+		authorization := evm.ExactEIP3009Authorization{
+			From:        c.signer.Address(),
+			To:          requirements.PayTo,
+			Value:       value.String(),
+			ValidAfter:  validAfter.String(),
+			ValidBefore: validBefore.String(),
+			Nonce:       nonce,
+		}
 
-	// Create EVM payload
-	evmPayload := &evm.ExactEIP3009Payload{
-		Signature:     evm.BytesToHex(signature),
-		Authorization: authorization,
-	}
+		// Sign the authorization
+		signature, err := c.signAuthorizationEIP3009(ctx, authorization, config.ChainID, assetInfo.Address, tokenName, tokenVersion)
+		if err != nil {
+			return types.PaymentPayload{}, fmt.Errorf("failed to sign authorization: %w", err)
+		}
 
-	// Return partial V2 payload (core will add accepted, resource, extensions)
-	return types.PaymentPayload{
-		X402Version: 2,
-		Payload:     evmPayload.ToMap(),
-	}, nil
+		// Create EVM payload
+		evmPayload := &evm.ExactEIP3009Payload{
+			Signature:     "0x" + hex.EncodeToString(signature),
+			Authorization: authorization,
+		}
+
+		payloadMap := evmPayload.ToMap()
+		payloadMap["type"] = "authorizationEip3009"
+
+		return types.PaymentPayload{
+			X402Version: 2,
+			Payload:     payloadMap,
+		}, nil
+	} else {
+		// ERC-20 Authorization (Approvals + Facilitator)
+
+		// 1. Check Allowance
+		allowanceRes, err := c.signer.ReadContract(
+			ctx,
+			assetInfo.Address,
+			evm.ERC20ABI,
+			"allowance",
+			common.HexToAddress(c.signer.Address()),
+			common.HexToAddress(evm.FacilitatorContractAddress),
+		)
+		if err != nil {
+			return types.PaymentPayload{}, fmt.Errorf("failed to check allowance: %w", err)
+		}
+
+		allowance, ok := allowanceRes.(*big.Int)
+		if !ok {
+			return types.PaymentPayload{}, fmt.Errorf("invalid allowance type returned: %T", allowanceRes)
+		}
+
+		// 2. Approve if necessary
+		if allowance.Cmp(value) < 0 {
+			fmt.Printf("Approving %s for facilitator...\n", value.String())
+			txHash, err := c.signer.WriteContract(
+				ctx,
+				assetInfo.Address,
+				evm.ERC20ABI,
+				"approve",
+				common.HexToAddress(evm.FacilitatorContractAddress),
+				value,
+			)
+			if err != nil {
+				return types.PaymentPayload{}, fmt.Errorf("failed to send approve transaction: %w", err)
+			}
+
+			// Wait for confirmation
+			receipt, err := c.signer.WaitForTransactionReceipt(ctx, txHash)
+			if err != nil {
+				return types.PaymentPayload{}, fmt.Errorf("failed to wait for approve receipt: %w", err)
+			}
+			if receipt.Status == 0 {
+				return types.PaymentPayload{}, fmt.Errorf("approve transaction failed")
+			}
+			fmt.Println("Approve transaction confirmed.")
+		}
+
+		authorization := evm.ExactERC20Authorization{
+			Token:       assetInfo.Address,
+			From:        c.signer.Address(),
+			To:          requirements.PayTo,
+			Value:       value.String(),
+			ValidAfter:  validAfter.String(),
+			ValidBefore: validBefore.String(),
+			Nonce:       nonce,
+			NeedApprove: true, // Signal that approval corresponds to this payment
+		}
+
+		// Sign the authorization
+		// Note: The reference implementation uses "Facilitator" domain name and version "1"
+		// which are hardcoded in signAuthorizationERC20
+		signature, err := c.signAuthorizationERC20(ctx, authorization, config.ChainID, evm.FacilitatorContractAddress)
+		if err != nil {
+			return types.PaymentPayload{}, fmt.Errorf("failed to sign authorization: %w", err)
+		}
+
+		// Create EVM payload
+		evmPayload := &evm.ExactERC20Payload{
+			Signature:     "0x" + hex.EncodeToString(signature),
+			Authorization: authorization,
+		}
+
+		payloadMap := evmPayload.ToMap()
+		payloadMap["type"] = "authorization"
+
+		return types.PaymentPayload{
+			X402Version: 2,
+			Payload:     payloadMap,
+		}, nil
+	}
 }
 
-// signAuthorization signs the EIP-3009 authorization using EIP-712
-func (c *ExactEvmScheme) signAuthorization(
+// signAuthorizationEIP3009 signs the EIP-3009 authorization using EIP-712
+func (c *ExactEvmScheme) signAuthorizationEIP3009(
 	ctx context.Context,
 	authorization evm.ExactEIP3009Authorization,
 	chainID *big.Int,
@@ -159,4 +266,62 @@ func (c *ExactEvmScheme) signAuthorization(
 
 	// Sign the typed data
 	return c.signer.SignTypedData(ctx, domain, types, "TransferWithAuthorization", message)
+}
+
+// signAuthorizationERC20 signs the ERC-20 authorization using EIP-712
+func (c *ExactEvmScheme) signAuthorizationERC20(
+	ctx context.Context,
+	authorization evm.ExactERC20Authorization,
+	chainID *big.Int,
+	verifyingContract string,
+) ([]byte, error) {
+	// Create EIP-712 domain
+	// Note: The reference implementation hardcodes name "Facilitator" and version "1" for the domain
+	domain := evm.TypedDataDomain{
+		Name:              "Facilitator",
+		Version:           "1",
+		ChainID:           chainID,
+		VerifyingContract: verifyingContract,
+	}
+
+	// Define EIP-712 types
+	types := map[string][]evm.TypedDataField{
+		"EIP712Domain": {
+			{Name: "name", Type: "string"},
+			{Name: "version", Type: "string"},
+			{Name: "chainId", Type: "uint256"},
+			{Name: "verifyingContract", Type: "address"},
+		},
+		"tokenTransferWithAuthorization": {
+			{Name: "token", Type: "address"},
+			{Name: "from", Type: "address"},
+			{Name: "to", Type: "address"},
+			{Name: "value", Type: "uint256"},
+			{Name: "validAfter", Type: "uint256"},
+			{Name: "validBefore", Type: "uint256"},
+			{Name: "nonce", Type: "bytes32"},
+			{Name: "needApprove", Type: "bool"},
+		},
+	}
+
+	// Parse values for message
+	value, _ := new(big.Int).SetString(authorization.Value, 10)
+	validAfter, _ := new(big.Int).SetString(authorization.ValidAfter, 10)
+	validBefore, _ := new(big.Int).SetString(authorization.ValidBefore, 10)
+	nonceBytes, _ := evm.HexToBytes(authorization.Nonce)
+
+	// Create message
+	message := map[string]interface{}{
+		"token":       authorization.Token,
+		"from":        authorization.From,
+		"to":          authorization.To,
+		"value":       value,
+		"validAfter":  validAfter,
+		"validBefore": validBefore,
+		"nonce":       nonceBytes,
+		"needApprove": authorization.NeedApprove,
+	}
+
+	// Sign the typed data
+	return c.signer.SignTypedData(ctx, domain, types, "tokenTransferWithAuthorization", message)
 }

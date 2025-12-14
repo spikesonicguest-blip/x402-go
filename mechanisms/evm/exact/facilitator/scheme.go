@@ -9,9 +9,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	x402 "github.com/coinbase/x402/go"
-	"github.com/coinbase/x402/go/mechanisms/evm"
-	"github.com/coinbase/x402/go/types"
+	x402 "x402-go"
+	"x402-go/mechanisms/evm"
+	"x402-go/types"
 )
 
 // ExactEvmSchemeConfig holds configuration for the ExactEvmScheme facilitator
@@ -87,17 +87,6 @@ func (f *ExactEvmScheme) Verify(
 		return nil, x402.NewVerifyError("network_mismatch", "", network, nil)
 	}
 
-	// Parse EVM payload
-	evmPayload, err := evm.PayloadFromMap(payload.Payload)
-	if err != nil {
-		return nil, x402.NewVerifyError("invalid_payload", "", network, err)
-	}
-
-	// Validate signature exists
-	if evmPayload.Signature == "" {
-		return nil, x402.NewVerifyError("missing_signature", "", network, nil)
-	}
-
 	// Get network configuration
 	networkStr := string(requirements.Network)
 	config, err := evm.GetNetworkConfig(networkStr)
@@ -109,6 +98,18 @@ func (f *ExactEvmScheme) Verify(
 	assetInfo, err := evm.GetAssetInfo(networkStr, requirements.Asset)
 	if err != nil {
 		return nil, x402.NewVerifyError("failed_to_get_asset_info", "", network, err)
+	}
+
+	// Parse EVM payload - use generic parser that handles standard EIP-3009 structure
+	// We use ExactEIP3009Payload structure for both flows as they share key fields
+	evmPayload, err := evm.PayloadFromMap(payload.Payload)
+	if err != nil {
+		return nil, x402.NewVerifyError("invalid_payload", "", network, err)
+	}
+
+	// Validate signature exists
+	if evmPayload.Signature == "" {
+		return nil, x402.NewVerifyError("missing_signature", "", network, nil)
 	}
 
 	// Validate authorization matches requirements
@@ -132,24 +133,6 @@ func (f *ExactEvmScheme) Verify(
 		return nil, x402.NewVerifyError("insufficient_amount", evmPayload.Authorization.From, network, nil)
 	}
 
-	// Check if nonce has been used
-	nonceUsed, err := f.checkNonceUsed(ctx, evmPayload.Authorization.From, evmPayload.Authorization.Nonce, assetInfo.Address)
-	if err != nil {
-		return nil, x402.NewVerifyError("failed_to_check_nonce", evmPayload.Authorization.From, network, err)
-	}
-	if nonceUsed {
-		return nil, x402.NewVerifyError("nonce_already_used", evmPayload.Authorization.From, network, nil)
-	}
-
-	// Check balance
-	balance, err := f.signer.GetBalance(ctx, evmPayload.Authorization.From, assetInfo.Address)
-	if err != nil {
-		return nil, x402.NewVerifyError("failed_to_get_balance", evmPayload.Authorization.From, network, err)
-	}
-	if balance.Cmp(authValue) < 0 {
-		return nil, x402.NewVerifyError("insufficient_balance", evmPayload.Authorization.From, network, nil)
-	}
-
 	// Extract token info from requirements
 	tokenName := assetInfo.Name
 	tokenVersion := assetInfo.Version
@@ -163,27 +146,97 @@ func (f *ExactEvmScheme) Verify(
 	}
 
 	// Verify signature
+	// Verify signature
+	// We verify against the token contract as the VerifyingContract for EIP-3009 payloads.
+	// For generic ERC-20 authorizations (signed for Facilitator), we verify against the Facilitator contract.
+
+	// Determine verification strategy based on payload type
+	// If type is present, use it. Otherwise fall back to detection (backward compatibility)
+	var isEIP3009 bool
+	if typeStr, ok := payload.Payload["type"].(string); ok {
+		if typeStr == "authorizationEip3009" {
+			isEIP3009 = true
+		} else if typeStr == "authorization" {
+			isEIP3009 = false
+		} else {
+			return nil, x402.NewVerifyError("invalid_payload_type", "", network, fmt.Errorf("unknown payload type: %s", typeStr))
+		}
+	} else {
+		// Fallback: Determine verification strategy based on token capabilities (old method)
+		supported, err := evm.VerifyEIP3009Support(
+			ctx,
+			f.signer,
+			config.ChainID,
+			evmPayload.Authorization.From,
+			assetInfo.Address,
+		)
+		if err != nil {
+			// If we can't check, assume generic ERC-20 flow (safer default for unsupported tokens)
+			isEIP3009 = false
+		} else {
+			isEIP3009 = supported
+		}
+	}
+
 	signatureBytes, err := evm.HexToBytes(evmPayload.Signature)
 	if err != nil {
 		return nil, x402.NewVerifyError("invalid_signature_format", evmPayload.Authorization.From, network, err)
 	}
 
-	valid, err := f.verifySignature(
-		ctx,
-		evmPayload.Authorization,
-		signatureBytes,
-		config.ChainID,
-		assetInfo.Address,
-		tokenName,
-		tokenVersion,
-	)
-	if err != nil {
-		return nil, x402.NewVerifyError("failed_to_verify_signature", evmPayload.Authorization.From, network, err)
+	var valid bool
+	if isEIP3009 {
+		// Verify signature against Token contract (EIP-3009)
+		valid, err = f.verifySignature(
+			ctx,
+			evmPayload.Authorization,
+			signatureBytes,
+			config.ChainID,
+			assetInfo.Address,
+			tokenName,
+			tokenVersion,
+		)
+		if err != nil {
+			return nil, x402.NewVerifyError("failed_to_verify_signature", evmPayload.Authorization.From, network, err)
+		}
+	} else {
+		// Verify signature against Facilitator contract (ERC-20 Auth)
+		evmPayloadERC20, err := evm.PayloadERC20FromMap(payload.Payload)
+		if err != nil {
+			return nil, x402.NewVerifyError("invalid_payload", "", network, err)
+		}
+
+		// Hash ERC-20 Auth
+		hash, err := evm.HashERC20Authorization(
+			evmPayloadERC20.Authorization,
+			config.ChainID,
+			evm.FacilitatorContractAddress,
+		)
+		if err != nil {
+			return nil, x402.NewVerifyError("failed_to_hash_authorization", evmPayload.Authorization.From, network, err)
+		}
+		var hash32 [32]byte
+		copy(hash32[:], hash)
+
+		valid, _, err = evm.VerifyUniversalSignature(
+			ctx,
+			f.signer,
+			evmPayload.Authorization.From,
+			hash32,
+			signatureBytes,
+			true,
+		)
+		if err != nil {
+			return nil, x402.NewVerifyError("failed_to_verify_signature", evmPayload.Authorization.From, network, err)
+		}
 	}
 
 	if !valid {
 		return nil, x402.NewVerifyError("invalid_signature", evmPayload.Authorization.From, network, nil)
 	}
+
+	// Unlike TS implementation which is lighter on pre-checks, we perform robust
+	// off-chain validation here to ensure the signature is valid before settlement.
+	// This prevents failed transactions and wasted gas.
 
 	return &x402.VerifyResponse{
 		IsValid: true,
@@ -210,17 +263,17 @@ func (f *ExactEvmScheme) Settle(
 		return nil, x402.NewSettleError("verification_failed", "", network, "", err)
 	}
 
-	// Parse EVM payload
-	evmPayload, err := evm.PayloadFromMap(payload.Payload)
-	if err != nil {
-		return nil, x402.NewSettleError("invalid_payload", verifyResp.Payer, network, "", err)
-	}
-
 	// Get asset info
 	networkStr := string(requirements.Network)
 	assetInfo, err := evm.GetAssetInfo(networkStr, requirements.Asset)
 	if err != nil {
 		return nil, x402.NewSettleError("failed_to_get_asset_info", verifyResp.Payer, network, "", err)
+	}
+
+	// Parse EVM payload (Standard EIP-3009 structure works for extraction)
+	evmPayload, err := evm.PayloadFromMap(payload.Payload)
+	if err != nil {
+		return nil, x402.NewSettleError("invalid_payload", verifyResp.Payer, network, "", err)
 	}
 
 	// Parse signature
@@ -258,8 +311,10 @@ func (f *ExactEvmScheme) Settle(
 		}
 	}
 
-	// Use inner signature for settlement
-	signatureBytes = sigData.InnerSignature
+	// Use original signature for settlement (Facilitator handles unpacking 6492 if needed, or we pass inner?
+	// TS implementation passes `payload.signature`. If 6492 is used, it should be passed as is to the contract
+	// if the contract supports it. Our Facilitator contract uses Solady SignatureChecker which supports 6492.
+	// So we pass the FULL signature.
 
 	// Parse values
 	value, _ := new(big.Int).SetString(evmPayload.Authorization.Value, 10)
@@ -267,47 +322,22 @@ func (f *ExactEvmScheme) Settle(
 	validBefore, _ := new(big.Int).SetString(evmPayload.Authorization.ValidBefore, 10)
 	nonceBytes, _ := evm.HexToBytes(evmPayload.Authorization.Nonce)
 
-	// Determine signature type: ECDSA (65 bytes) or smart wallet (longer)
-	isECDSA := len(signatureBytes) == 65
-
-	var txHash string
-	if isECDSA {
-		// For EOA wallets, use v,r,s overload
-		r := signatureBytes[0:32]
-		s := signatureBytes[32:64]
-		v := signatureBytes[64]
-
-		txHash, err = f.signer.WriteContract(
-			ctx,
-			assetInfo.Address,
-			evm.TransferWithAuthorizationVRSABI,
-			evm.FunctionTransferWithAuthorization,
-			common.HexToAddress(evmPayload.Authorization.From),
-			common.HexToAddress(evmPayload.Authorization.To),
-			value,
-			validAfter,
-			validBefore,
-			[32]byte(nonceBytes),
-			v,
-			[32]byte(r),
-			[32]byte(s),
-		)
-	} else {
-		// For smart wallets, use bytes signature overload
-		txHash, err = f.signer.WriteContract(
-			ctx,
-			assetInfo.Address,
-			evm.TransferWithAuthorizationBytesABI,
-			evm.FunctionTransferWithAuthorization,
-			common.HexToAddress(evmPayload.Authorization.From),
-			common.HexToAddress(evmPayload.Authorization.To),
-			value,
-			validAfter,
-			validBefore,
-			[32]byte(nonceBytes),
-			signatureBytes,
-		)
-	}
+	// Execute settlePayment on the Facilitator contract
+	// This unified function handles both EIP-3009 and generic transferWithAuthorization (ERC-20 style)
+	txHash, err := f.signer.WriteContract(
+		ctx,
+		evm.FacilitatorContractAddress,
+		evm.SettlePaymentABI,
+		"settlePayment",
+		common.HexToAddress(assetInfo.Address), // Token address
+		common.HexToAddress(evmPayload.Authorization.From),
+		common.HexToAddress(requirements.PayTo), // PayTo from requirements (safer)
+		value,
+		validAfter,
+		validBefore,
+		[32]byte(nonceBytes),
+		signatureBytes,
+	)
 
 	if err != nil {
 		return nil, x402.NewSettleError("failed_to_execute_transfer", verifyResp.Payer, network, "", err)
@@ -344,6 +374,8 @@ func (f *ExactEvmScheme) Settle(
 // Returns:
 //
 //	error if deployment fails
+type deploySmartWalletFunc = func(ctx context.Context, sigData *evm.ERC6492SignatureData) error
+
 func (f *ExactEvmScheme) deploySmartWallet(
 	ctx context.Context,
 	sigData *evm.ERC6492SignatureData,

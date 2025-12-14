@@ -3,7 +3,7 @@ package bazaar
 import (
 	"fmt"
 
-	"github.com/coinbase/x402/go/extensions/types"
+	"x402-go/extensions/types"
 )
 
 // DeclareDiscoveryExtension creates a discovery extension for any HTTP method

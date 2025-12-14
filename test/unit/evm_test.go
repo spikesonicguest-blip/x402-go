@@ -5,11 +5,15 @@ import (
 	"math/big"
 	"testing"
 
-	x402 "github.com/coinbase/x402/go"
-	"github.com/coinbase/x402/go/mechanisms/evm"
-	evmclient "github.com/coinbase/x402/go/mechanisms/evm/exact/client"
-	evmv1client "github.com/coinbase/x402/go/mechanisms/evm/exact/v1/client"
-	"github.com/coinbase/x402/go/types"
+	"github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/signer/core/apitypes"
+
+	x402 "x402-go"
+	"x402-go/mechanisms/evm"
+	evmclient "x402-go/mechanisms/evm/exact/client"
+	evmv1client "x402-go/mechanisms/evm/exact/v1/client"
+	"x402-go/types"
 )
 
 // Mock EVM signer for client
@@ -18,10 +22,8 @@ type mockClientEvmSigner struct {
 }
 
 func (m *mockClientEvmSigner) Address() string {
-	if m.address == "" {
-		return "0x1234567890123456789012345678901234567890"
-	}
-	return m.address
+	// Corresponds to private key: 0x0123456789012345678901234567890123456789012345678901234567890123
+	return "0x14791697260E4c9A71f18484C9f997B308e59325"
 }
 
 func (m *mockClientEvmSigner) SignTypedData(
@@ -31,11 +33,75 @@ func (m *mockClientEvmSigner) SignTypedData(
 	primaryType string,
 	message map[string]interface{},
 ) ([]byte, error) {
-	// Return a mock signature (65 bytes)
-	sig := make([]byte, 65)
-	// Set v to 27 (common value for Ethereum signatures)
-	sig[64] = 27
-	return sig, nil
+	// Use a hardcoded private key for testing
+	// Private key corresponding to 0x1234567890123456789012345678901234567890 is not known,
+	// so we switch to a known key and update Address() to match.
+	// But Address() is hardcoded. Let's fix Address() too.
+	// Key: 0x0123456789012345678901234567890123456789012345678901234567890123
+	// Addr: 0x14791697260E4c9A71f18484C9f997B308e59325
+	pk, _ := crypto.HexToECDSA("0123456789012345678901234567890123456789012345678901234567890123")
+
+	// Convert types to apitypes
+	typedData := apitypes.TypedData{
+		Types:       make(apitypes.Types),
+		PrimaryType: primaryType,
+		Domain: apitypes.TypedDataDomain{
+			Name:              domain.Name,
+			Version:           domain.Version,
+			ChainId:           (*math.HexOrDecimal256)(domain.ChainID),
+			VerifyingContract: domain.VerifyingContract,
+		},
+		Message: message,
+	}
+
+	for typeName, fields := range types {
+		typedFields := make([]apitypes.Type, len(fields))
+		for i, field := range fields {
+			typedFields[i] = apitypes.Type{
+				Name: field.Name,
+				Type: field.Type,
+			}
+		}
+		typedData.Types[typeName] = typedFields
+	}
+
+	// Hash
+	domainSeparator, err := typedData.HashStruct("EIP712Domain", typedData.Domain.Map())
+	if err != nil {
+		return nil, err
+	}
+	typedDataHash, err := typedData.HashStruct(typedData.PrimaryType, typedData.Message)
+	if err != nil {
+		return nil, err
+	}
+
+	rawData := []byte{0x19, 0x01}
+	rawData = append(rawData, domainSeparator...)
+	rawData = append(rawData, typedDataHash...)
+	hash := crypto.Keccak256(rawData)
+
+	// Sign
+	signature, err := crypto.Sign(hash, pk)
+	if err != nil {
+		return nil, err
+	}
+
+	// Adjust V
+	if signature[64] < 27 {
+		signature[64] += 27
+	}
+
+	return signature, nil
+}
+
+func (m *mockClientEvmSigner) ReadContract(
+	ctx context.Context,
+	address string,
+	abi []byte,
+	functionName string,
+	args ...interface{},
+) (interface{}, error) {
+	return nil, nil
 }
 
 // Mock EVM signer for facilitator
@@ -53,6 +119,10 @@ func newMockFacilitatorEvmSigner() *mockFacilitatorEvmSigner {
 
 func (m *mockFacilitatorEvmSigner) Address() string {
 	return "0xfacilitator1234567890123456789012345678"
+}
+
+func (m *mockFacilitatorEvmSigner) GetAddresses() []string {
+	return []string{m.Address()}
 }
 
 func (m *mockFacilitatorEvmSigner) GetCode(ctx context.Context, address string) ([]byte, error) {
@@ -76,7 +146,7 @@ func (m *mockFacilitatorEvmSigner) GetChainID(ctx context.Context) (*big.Int, er
 
 func (m *mockFacilitatorEvmSigner) ReadContract(
 	ctx context.Context,
-	contractAddress string,
+	address string,
 	abi []byte,
 	functionName string,
 	args ...interface{},

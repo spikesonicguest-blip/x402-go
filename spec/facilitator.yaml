@@ -138,6 +138,14 @@ components:
         network:
           type: string
     PaymentPayload:
+      oneOf:
+        - $ref: '#/components/schemas/PaymentPayloadV2'
+        - $ref: '#/components/schemas/PaymentPayloadV1'
+    PaymentRequirements:
+      oneOf:
+        - $ref: '#/components/schemas/PaymentRequirementsV2'
+        - $ref: '#/components/schemas/PaymentRequirementsV1'
+    PaymentPayloadV2:
       type: object
       properties:
         x402Version:
@@ -145,15 +153,42 @@ components:
           example: 2
         payload:
           type: object
+          properties:
+            type:
+              type: string
+              enum: [authorization, authorizationEip3009]
+              description: "Type of authorization (EVM Exact Scheme)"
+            signature:
+              type: string
+            authorization:
+              type: object
           additionalProperties: true
         accepted:
-          $ref: '#/components/schemas/PaymentRequirements'
+          $ref: '#/components/schemas/PaymentRequirementsV2'
         resource:
           $ref: '#/components/schemas/ResourceInfo'
         extensions:
           type: object
           additionalProperties: true
-    PaymentRequirements:
+    PaymentPayloadV1:
+      type: object
+      properties:
+        x402Version:
+          type: integer
+          example: 1
+        scheme:
+          type: string
+        network:
+          type: string
+        payload:
+          type: object
+          properties:
+            signature:
+              type: string
+            authorization:
+              type: object
+          additionalProperties: true
+    PaymentRequirementsV2:
       type: object
       properties:
         scheme:
@@ -163,6 +198,23 @@ components:
         asset:
           type: string
         amount:
+          type: string
+        payTo:
+          type: string
+        maxTimeoutSeconds:
+          type: integer
+        extra:
+          type: object
+    PaymentRequirementsV1:
+      type: object
+      properties:
+        scheme:
+          type: string
+        network:
+          type: string
+        asset:
+          type: string
+        maxAmountRequired:
           type: string
         payTo:
           type: string

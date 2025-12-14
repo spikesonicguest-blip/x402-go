@@ -27,6 +27,49 @@ type ExactEvmPayloadV1 = ExactEIP3009Payload
 // ExactEvmPayloadV2 is an alias for ExactEIP3009Payload (v2 compatibility)
 type ExactEvmPayloadV2 = ExactEIP3009Payload
 
+// ExactERC20Authorization represents the ERC20 TransferWithAuthorization data
+type ExactERC20Authorization struct {
+	Token       string `json:"token"`       // Token address (hex)
+	From        string `json:"from"`        // Ethereum address (hex)
+	To          string `json:"to"`          // Ethereum address (hex)
+	Value       string `json:"value"`       // Amount in wei as string
+	ValidAfter  string `json:"validAfter"`  // Unix timestamp as string
+	ValidBefore string `json:"validBefore"` // Unix timestamp as string
+	Nonce       string `json:"nonce"`       // 32-byte nonce as hex string
+	NeedApprove bool   `json:"needApprove"` // Whether to approve the token transfer
+}
+
+// ExactERC20Payload represents the exact payment payload for ERC20 authorization
+type ExactERC20Payload struct {
+	Signature     string                  `json:"signature,omitempty"`
+	Authorization ExactERC20Authorization `json:"authorization"`
+}
+
+// ToMap converts an ExactERC20Payload to a map for JSON marshaling
+func (p *ExactERC20Payload) ToMap() map[string]interface{} {
+	result := map[string]interface{}{
+		"authorization": map[string]interface{}{
+			"token":       p.Authorization.Token,
+			"from":        p.Authorization.From,
+			"to":          p.Authorization.To,
+			"value":       p.Authorization.Value,
+			"validAfter":  p.Authorization.ValidAfter,
+			"validBefore": p.Authorization.ValidBefore,
+			"nonce":       p.Authorization.Nonce,
+			"needApprove": p.Authorization.NeedApprove,
+		},
+	}
+	if p.Signature != "" {
+		result["signature"] = p.Signature
+	}
+	return result
+}
+
+// ContractReader defines the interface for reading from a smart contract
+type ContractReader interface {
+	ReadContract(ctx context.Context, address string, abi []byte, functionName string, args ...interface{}) (interface{}, error)
+}
+
 // ClientEvmSigner defines the interface for client-side EVM signing operations
 type ClientEvmSigner interface {
 	// Address returns the signer's Ethereum address
@@ -34,6 +77,18 @@ type ClientEvmSigner interface {
 
 	// SignTypedData signs EIP-712 typed data
 	SignTypedData(ctx context.Context, domain TypedDataDomain, types map[string][]TypedDataField, primaryType string, message map[string]interface{}) ([]byte, error)
+
+	// ReadContract reads data from a smart contract
+	// Required for dynamic feature detection (e.g. EIP-3009 support)
+	// Implementations without network access should return an error
+	ReadContract(ctx context.Context, address string, abi []byte, functionName string, args ...interface{}) (interface{}, error)
+
+	// WriteContract executes a smart contract transaction
+	// Required for on-chain operations like ERC-20 approvals
+	WriteContract(ctx context.Context, address string, abi []byte, functionName string, args ...interface{}) (string, error)
+
+	// WaitForTransactionReceipt waits for a transaction to be mined
+	WaitForTransactionReceipt(ctx context.Context, txHash string) (*TransactionReceipt, error)
 }
 
 // FacilitatorEvmSigner defines the interface for facilitator EVM operations
@@ -93,10 +148,11 @@ type TransactionReceipt struct {
 
 // AssetInfo contains information about an ERC20 token
 type AssetInfo struct {
-	Address  string
-	Name     string
-	Version  string
-	Decimals int
+	Address         string
+	Name            string
+	Version         string
+	Decimals        int
+	SupportsEIP3009 bool
 }
 
 // NetworkConfig contains network-specific configuration
@@ -150,6 +206,68 @@ func PayloadFromMap(data map[string]interface{}) (*ExactEIP3009Payload, error) {
 		}
 		if nonce, ok := auth["nonce"].(string); ok {
 			payload.Authorization.Nonce = nonce
+		}
+	}
+
+	return payload, nil
+}
+
+// PayloadFromMap creates an ExactEIP3009Payload or ExactERC20Payload from a map.
+// Note: Since both payloads share the same underlying struct for Authorization (mostly),
+// and ExactEIP3009Payload is the legacy/standard return type, we currently map everything
+// to that structure where possible or handle the extension fields.
+//
+// Ideally, this should return a wrapper or interface, but for now we will assume the caller
+// knows what to expect or checks the fields.
+// However, to support the new ExactERC20Payload, we might need a more flexible return type or
+// just reuse the existing one if it fits.
+//
+// Actually, looking at types.go, ExactEIP3009Authorization is missing 'Token' and 'NeedApprove'.
+// We need to update ExactEIP3009Payload or use a Union type.
+// Given strict typing, we might need a separate parser or expand ExactEIP3009Authorization?
+// Expanding ExactEIP3009Authorization involves changing the spec.
+//
+// Instead, let's allow returning a pointer to ExactEIP3009Payload OR ExactERC20Payload.
+// But Go doesn't support sum types easily.
+//
+// Let's modify PayloadFromMap to return interface{} or check input.
+// Alternatively, since ExactEvmScheme uses this, and it needs to handle both...
+//
+// Let's UPDATE ExactEIP3009Authorization to include optional Token and NeedApprove?
+// No, that mixes EIP-3009 and ERC-20 auth.
+//
+// Let's add a specialized function PayloadERC20FromMap.
+func PayloadERC20FromMap(data map[string]interface{}) (*ExactERC20Payload, error) {
+	payload := &ExactERC20Payload{}
+
+	if sig, ok := data["signature"].(string); ok {
+		payload.Signature = sig
+	}
+
+	if auth, ok := data["authorization"].(map[string]interface{}); ok {
+		if token, ok := auth["token"].(string); ok {
+			payload.Authorization.Token = token
+		}
+		if from, ok := auth["from"].(string); ok {
+			payload.Authorization.From = from
+		}
+		if to, ok := auth["to"].(string); ok {
+			payload.Authorization.To = to
+		}
+		if value, ok := auth["value"].(string); ok {
+			payload.Authorization.Value = value
+		}
+		if validAfter, ok := auth["validAfter"].(string); ok {
+			payload.Authorization.ValidAfter = validAfter
+		}
+		if validBefore, ok := auth["validBefore"].(string); ok {
+			payload.Authorization.ValidBefore = validBefore
+		}
+		if nonce, ok := auth["nonce"].(string); ok {
+			payload.Authorization.Nonce = nonce
+		}
+		if needApprove, ok := auth["needApprove"].(bool); ok {
+			payload.Authorization.NeedApprove = needApprove
 		}
 	}
 
