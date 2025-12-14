@@ -2,6 +2,7 @@ package evm
 
 import (
 	"math/big"
+	"os"
 )
 
 const (
@@ -288,3 +289,30 @@ var (
 		}
 	]`)
 )
+
+func init() {
+	if envAddr := os.Getenv("EVM_FACILITATOR_CONTRACT_ADDRESS"); envAddr != "" {
+		FacilitatorContractAddress = envAddr
+	}
+
+	if usdcAddr := os.Getenv("EVM_USDC_ADDRESS"); usdcAddr != "" {
+		// Override for eip155:84532
+		if config, ok := NetworkConfigs["eip155:84532"]; ok {
+			config.DefaultAsset.Address = usdcAddr
+			if asset, ok := config.SupportedAssets["USDC"]; ok {
+				asset.Address = usdcAddr
+				config.SupportedAssets["USDC"] = asset
+			}
+			NetworkConfigs["eip155:84532"] = config
+		}
+		// Override for base-sepolia alias
+		if config, ok := NetworkConfigs["base-sepolia"]; ok {
+			config.DefaultAsset.Address = usdcAddr
+			if asset, ok := config.SupportedAssets["USDC"]; ok {
+				asset.Address = usdcAddr
+				config.SupportedAssets["USDC"] = asset
+			}
+			NetworkConfigs["base-sepolia"] = config
+		}
+	}
+}

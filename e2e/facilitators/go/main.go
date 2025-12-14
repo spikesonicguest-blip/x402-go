@@ -26,6 +26,7 @@ import (
 	svm "x402-go/mechanisms/svm/exact/facilitator"
 	svmv1 "x402-go/mechanisms/svm/exact/v1/facilitator"
 	x402types "x402-go/types"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -657,7 +658,11 @@ func main() {
 	}
 
 	// Initialize the real EVM blockchain signer (uses default Base Sepolia RPC)
-	evmSigner, err := newRealFacilitatorEvmSigner(evmPrivateKey, "https://sepolia.base.org")
+	evmRPC := os.Getenv("EVM_RPC_URL")
+	if evmRPC == "" {
+		evmRPC = "https://sepolia.base.org"
+	}
+	evmSigner, err := newRealFacilitatorEvmSigner(evmPrivateKey, evmRPC)
 	if err != nil {
 		log.Fatalf("Failed to create EVM signer: %v", err)
 	}
@@ -665,10 +670,14 @@ func main() {
 	chainID, _ := evmSigner.GetChainID(context.Background())
 	addresses := evmSigner.GetAddresses()
 	log.Printf("EVM Facilitator account: %s", addresses[0])
-	log.Printf("Connected to chain ID: %s (expected: 84532 for Base Sepolia)", chainID.String())
+	log.Printf("Connected to chain ID: %s (RPC: %s)", chainID.String(), evmRPC)
 
 	// Initialize the real SVM blockchain signer (uses default Solana Devnet RPC)
-	svmSigner, err := newRealFacilitatorSvmSigner(svmPrivateKey, "https://api.devnet.solana.com")
+	svmRPC := os.Getenv("SVM_RPC_URL")
+	if svmRPC == "" {
+		svmRPC = "https://api.devnet.solana.com"
+	}
+	svmSigner, err := newRealFacilitatorSvmSigner(svmPrivateKey, svmRPC)
 	if err != nil {
 		log.Fatalf("Failed to create SVM signer: %v", err)
 	}
