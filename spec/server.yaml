@@ -1,0 +1,125 @@
+openapi: 3.0.3
+info:
+  title: x402 Server Protocol API
+  description: Specification of the x402 Payment Protocol headers and response structures for protected resources.
+  version: 1.0.0
+paths:
+  /resource:
+    get:
+      summary: Example protected resource
+      description: |
+        Accessing this resource without payment returns 402 Payment Required.
+        Accessing with a valid `PAYMENT-SIGNATURE` header returns the resource and a `PAYMENT-RESPONSE` settlement header.
+      operationId: getProtectedResource
+      parameters:
+        - in: header
+          name: PAYMENT-SIGNATURE
+          schema:
+            type: string
+            description: Base64 encoded PaymentPayload (V2) or X-PAYMENT (V1)
+          required: false
+      responses:
+        '200':
+          description: Resource content (Payment accepted)
+          headers:
+            PAYMENT-RESPONSE:
+              description: Base64 encoded SettleResponse containing transaction details
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+        '402':
+          description: Payment Required
+          headers:
+            PAYMENT-REQUIRED:
+              description: Base64 encoded PaymentRequired struct containing payment options
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnpaidResponse'
+            text/html:
+              schema:
+                type: string
+                description: Paywall HTML for browsers
+components:
+  schemas:
+    UnpaidResponse:
+      type: object
+      description: Custom response body for unpaid API requests
+      properties:
+        error:
+          type: string
+          description: Error message ex. "Payment required"
+    PaymentRequired:
+      type: object
+      properties:
+        x402Version:
+          type: integer
+          example: 2
+        error:
+          type: string
+        resource:
+          $ref: '#/components/schemas/ResourceInfo'
+        accepts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequirements'
+        extensions:
+          type: object
+          additionalProperties: true
+    PaymentRequirements:
+      type: object
+      properties:
+        scheme:
+          type: string
+        network:
+          type: string
+        asset:
+          type: string
+        amount:
+          type: string
+        payTo:
+          type: string
+        maxTimeoutSeconds:
+          type: integer
+        extra:
+          type: object
+    ResourceInfo:
+      type: object
+      properties:
+        url:
+          type: string
+        description:
+          type: string
+        mimeType:
+          type: string
+    PaymentPayload:
+      type: object
+      properties:
+        x402Version:
+          type: integer
+          example: 2
+        payload:
+          type: object
+        accepted:
+          $ref: '#/components/schemas/PaymentRequirements'
+    SettleResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        errorReason:
+          type: string
+        payer:
+          type: string
+        transaction:
+          type: string
+        network:
+          type: string

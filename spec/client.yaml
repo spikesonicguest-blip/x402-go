@@ -1,0 +1,103 @@
+openapi: 3.0.3
+info:
+  title: x402 Client Data Models
+  description: Data specifications for the x402 Client Library models.
+  version: 1.0.0
+paths: {}
+components:
+  schemas:
+    PaymentPayload:
+      type: object
+      description: The payload sent to verify and settle payments.
+      properties:
+        x402Version:
+          type: integer
+          example: 2
+        payload:
+          type: object
+          description: Signed data (e.g., EIP-712 signature)
+        accepted:
+          $ref: '#/components/schemas/PaymentRequirements'
+        resource:
+          $ref: '#/components/schemas/ResourceInfo'
+        extensions:
+          type: object
+          additionalProperties: true
+    PaymentRequirements:
+      type: object
+      description: Requirements provided by the server that the client must fulfill.
+      properties:
+        scheme:
+          type: string
+          description: Payment scheme (e.g., "exact", "upto")
+        network:
+          type: string
+          description: CAIP-2 network identifier (e.g., "eip155:1")
+        asset:
+          type: string
+          description: Asset identifier (e.g., contract address or "native")
+        amount:
+          type: string
+          description: Payment amount (decimal string)
+        payTo:
+          type: string
+          description: Recipient address
+        maxTimeoutSeconds:
+          type: integer
+        extra:
+          type: object
+          additionalProperties: true
+    ResourceInfo:
+      type: object
+      description: Information about the resource being accessed.
+      properties:
+        url:
+          type: string
+        description:
+          type: string
+        mimeType:
+          type: string
+    PaymentHeader:
+      type: string
+      description: Base64 encoded PaymentPayload (PAYMENT-SIGNATURE)
+    UnpaidResponse:
+      type: object
+      description: Body of 402 Payment Required response
+      properties:
+        error:
+          type: string
+        resource:
+          $ref: '#/components/schemas/ResourceInfo'
+        accepts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRequirements'
+    SupportedResponse:
+      type: object
+      description: Response from Facilitator GET /supported
+      properties:
+        kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupportedKind'
+        extensions:
+          type: array
+          items:
+            type: string
+        signers:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    SupportedKind:
+      type: object
+      properties:
+        x402Version:
+          type: integer
+        scheme:
+          type: string
+        network:
+          type: string
+        extra:
+          type: object
